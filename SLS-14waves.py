@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-01-13 23:03:49
+LastEditTime: 2024-01-18 15:10:51
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -97,7 +97,7 @@ class AUTDThread(QThread):
 
         # import the HighPrecisionSleep() method
         dll = ctypes.cdll.LoadLibrary
-        self.libc = dll(os.path.dirname(__file__) + '/../cpp/' + platform.system().lower() +
+        self.libc = dll(os.path.dirname(__file__) + '/cpp/' + platform.system().lower() +
                          '/HighPrecisionTimer.so') 
 
     # slot function to accept SLS parameters
@@ -136,8 +136,8 @@ class AUTDThread(QThread):
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos),  12.5, 0.], [0., pi/12, 0.]))
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos), -DEVICE_HEIGHT - 12.5, 0.], [0., pi/12, 0.]))
             # .advanced_mode()
-            .open_with(Simulator(8080))
-            # .open_with(SOEM().with_on_lost(on_lost_func))
+            # .open_with(Simulator(8080))
+            .open_with(SOEM().with_on_lost(on_lost_func))
             # .open_with(TwinCAT())
         )
 
@@ -278,7 +278,7 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Sequential Line Search")
-        # self.video_thread = VideoThread()
+        self.video_thread = VideoThread()
         self.autd_thread = AUTDThread()
 
         self.image_disp_w_h = 320
@@ -341,13 +341,13 @@ class MainWindow(QWidget):
 
         self.updateValues(_update_optimizer_flag=False)
         # connect its signal to the update_image slot
-        # self.video_thread.change_pixmap_signal.connect(self.update_image)
+        self.video_thread.change_pixmap_signal.connect(self.update_image)
         # start the thread
-        # self.video_thread.start()
+        self.video_thread.start()
         self.autd_thread.start()
 
     def closeEvent(self, event):
-        # self.video_thread.stop()
+        self.video_thread.stop()
         self.autd_thread.stop()
         event.accept()
 
@@ -380,8 +380,8 @@ class MainWindow(QWidget):
             vertical_slider.setValue(int(optmized_para[i] * vertical_slider.maximum()))
             i += 1
 
-        optmized_para[0] = 3 + optmized_para[0] * 17     # STM_freq: 3~20Hz
-        optmized_para[1] = 2 + optmized_para[1] * 3       # STM radius: 2~5mm
+        optmized_para[0] = 5 + optmized_para[0] * 15     # STM_freq: 5~20Hz
+        optmized_para[1] = 2 + optmized_para[1] * 4       # STM radius: 2~6mm
         optmized_para[2:17] *= 4                           # Gain of frequency components: 0~4
 
         # print('f_STM:', stm_freq, '\tradius: ', radius, '\tf_wave: ', freq, '\tamp: ', amp)
