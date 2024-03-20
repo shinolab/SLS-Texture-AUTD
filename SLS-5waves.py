@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-03-20 17:28:24
+LastEditTime: 2024-03-20 17:37:10
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -28,8 +28,7 @@ import platform
 
 DEVICE_WIDTH = AUTD3.device_width()
 DEVICE_HEIGHT = AUTD3.device_height()
-FREQUENCY_LIST = [60, 100, 115, 130, 145, 160, 185, 
-                  210, 235, 265, 300, 450, 670, 1000]
+FREQUENCY_LIST = [60, 100, 300, 600, 1000]
 
 # drawing the waveform
 class SinusoidWidget(QWidget):
@@ -64,9 +63,9 @@ class SinusoidWidget(QWidget):
         for x in range(width):
             t = x / x_scale
             y = 0
-            for i in range(14):
+            for i in range(5):
                 y += 0.5 * self._frequency_gain[i] * math.sin(FREQUENCY_LIST[i] * t) + 0.5
-            y = y / 14
+            y = y / 5
             path.lineTo(x, height - y * y_scale)
         painter.drawPath(path)
 
@@ -107,7 +106,7 @@ class AUTDThread(QThread):
         self.radius = SLS_para[1]
 
         self.m = Fourier(Sine(freq=FREQUENCY_LIST[0]).with_amp(SLS_para[2]))
-        for i in range(3, 16):
+        for i in range(3, 7):
             self.m.add_component(Sine(freq=FREQUENCY_LIST[i-2]).with_amp(SLS_para[i]))
     
     # slot function to accept coordinates
@@ -301,10 +300,8 @@ class MainWindow(QWidget):
         layout.addWidget(self.sinusoid_widget)
 
         horizontal_layout = QHBoxLayout()
-        labels = ["F_STM", "R", "60 Hz", "100 Hz", "115 Hz", "130 Hz", 
-                  "145 Hz", "160 Hz", "185 Hz", "210 Hz",  "235 Hz", 
-                  "265 Hz", "300 Hz", "450 Hz", "670 Hz", "1000 Hz"]
-        for i in range(16):
+        labels = ["F_STM", "R", "60 Hz", "100 Hz", "300 Hz", "600 Hz", "1000 Hz"]
+        for i in range(7):
             vertical_slider = QSlider(Qt.Vertical)
             vertical_slider.setRange(0, 100)
             vertical_slider.setEnabled(False)
@@ -321,7 +318,7 @@ class MainWindow(QWidget):
         layout.addLayout(horizontal_layout)
         layout.addWidget(self.horizontal_slider)
 
-        self.optimizer = pySequentialLineSearch.SequentialLineSearchOptimizer(num_dims=16)
+        self.optimizer = pySequentialLineSearch.SequentialLineSearchOptimizer(num_dims=7)
 
         self.optimizer.set_hyperparams(kernel_signal_var=0.50,
                                 kernel_length_scale=0.10,
@@ -382,12 +379,12 @@ class MainWindow(QWidget):
 
         optmized_para[0] = 5 + optmized_para[0] * 15     # STM_freq: 5~20Hz
         optmized_para[1] = 2 + optmized_para[1] * 4       # STM radius: 2~6mm
-        optmized_para[2:17] *= 4                           # Gain of frequency components: 0~4
+        optmized_para[2:8] *= 4                           # Gain of frequency components: 0~4
 
         # print('f_STM:', stm_freq, '\tradius: ', radius, '\tf_wave: ', freq, '\tamp: ', amp)
         
         self.autd_thread.SLS_para_signal.emit(np.array(optmized_para))
-        self.sinusoid_widget.setGain(optmized_para[2:17])
+        self.sinusoid_widget.setGain(optmized_para[2:8])
 
 
 if __name__ == '__main__':
