@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-04-01 00:52:41
+LastEditTime: 2024-04-10 16:40:03
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -80,7 +80,6 @@ class SinusoidWidget(QWidget):
 # AUTD thread
 class AUTDThread(QThread):
     SLS_para_signal = pyqtSignal(np.ndarray)
-    position_signal = pyqtSignal(np.ndarray)
 
     def __init__(self):
         super().__init__()
@@ -162,6 +161,7 @@ class AUTDThread(QThread):
             while self._run_flag:
                 stm_f = self.stm_f
                 radius = self.radius
+                # print(self.coordinate)
 
                 # ... change the radius and height here
                 x = self.coordinate[0]
@@ -278,8 +278,8 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Sequential Line Search")
-        self.video_thread = VideoThread()
         self.autd_thread = AUTDThread()
+        self.video_thread = self.autd_thread.video_thread
 
         self.image_disp_w_h = 320
 

@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-03-20 17:28:24
+LastEditTime: 2024-04-10 16:37:08
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -278,8 +278,8 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Sequential Line Search")
-        self.video_thread = VideoThread()
         self.autd_thread = AUTDThread()
+        self.video_thread = self.autd_thread.video_thread
 
         self.image_disp_w_h = 320
 
