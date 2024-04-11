@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-04-01 00:52:41
+LastEditTime: 2024-04-10 23:38:59
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -42,10 +42,12 @@ class SinusoidWidget(QWidget):
         palette.setColor(self.backgroundRole(), Qt.white)
         self.setPalette(palette)
 
+    # The optimization parameters are gains corresponding to different frequency components
     def setGain(self, gain):
         self._frequency_gain = gain
         self.update()
 
+    # Visualize the waveform
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -64,13 +66,14 @@ class SinusoidWidget(QWidget):
         for x in range(width):
             t = x / x_scale
             y = 0
+            # Combination of frequency components
             for i in range(WAVE_NUM):
                 y += 0.5 * self._frequency_gain[i] * math.sin(FREQUENCY_LIST[i] * t) + 0.5
             y = y / WAVE_NUM
             path.lineTo(x, height - y * y_scale)
         painter.drawPath(path)
 
-        # draw the axis
+        # Draw the axis
         axis_thickness = 10
         painter.setPen(QPen(Qt.black, axis_thickness))
         painter.drawLine(0, height, width, height)
@@ -79,14 +82,16 @@ class SinusoidWidget(QWidget):
 
 # AUTD thread
 class AUTDThread(QThread):
+    # The signal to receive the SLS parameters
     SLS_para_signal = pyqtSignal(np.ndarray)
-    position_signal = pyqtSignal(np.ndarray)
 
     def __init__(self):
         super().__init__()
-        # connect the signal to the slot function
+        # Connect the signal to the slot function
         self.SLS_para_signal.connect(self.SLSSignal)
+        # The video thread of realsense
         self.video_thread = VideoThread()
+        # Connect the signal of finger position to the slot function to update the focus
         self.video_thread.position_signal.connect(self.PositionSignal)
 
         self._run_flag = True
@@ -106,6 +111,9 @@ class AUTDThread(QThread):
         self.stm_f = SLS_para[0]
         self.radius = SLS_para[1]
 
+        # Combine the frequency components according to SLS parameters
+        # First 2 parameters for STM (frequency and radius)
+        # Rest parameters for gains of frequency components
         self.m = Fourier(Sine(freq=FREQUENCY_LIST[0]).with_amp(SLS_para[2]))
         for i in range(3, WAVE_NUM + 2):
             self.m.add_component(Sine(freq=FREQUENCY_LIST[i-2]).with_amp(SLS_para[i]))
@@ -149,9 +157,9 @@ class AUTDThread(QThread):
 
         center = autd.geometry.center + np.array([0., 0., 0.])
 
-        time_step = 0.003
-        send_time = 0.0027
-        sleep_time = time_step - send_time
+        time_step = 0.003   # The expected time step
+        send_time = 0.0027  # The time cost of send infomation to AUTDs
+        sleep_time = time_step - send_time  # The real sleep time
         theta = 0
         config = Silencer()
         autd.send(config)
@@ -192,8 +200,11 @@ class AUTDThread(QThread):
         autd.close()
 
 
+# The thread for the realsense
 class VideoThread(QThread):
+    # Send the image to visulization obtained by the realsense
     change_pixmap_signal = pyqtSignal(np.ndarray)
+    # Send the finger position obtained by the realsense
     position_signal = pyqtSignal(np.ndarray)
 
     def __init__(self):
@@ -236,32 +247,44 @@ class VideoThread(QThread):
             cent_y = int(np.average(min_y))
             height = depth_img[cent_x, cent_y]
 
-            # # center of the depth image
-            # mass_x, mass_y = np.where(depth_img > 0)
-            # # if no depth infomation, continue
-            # if mass_x.size == 0 or mass_y.size == 0:
-            #     depth_img = cv2.applyColorMap(cv2.convertScaleAbs(depth_img), cv2.COLORMAP_JET)
-            #     self.change_pixmap_signal.emit(depth_img)
-            #     continue
-
-            # # mass_x and mass_y are the list of x indices and y indices of mass pixels
-            # # calculate the centroid
-            # cent_x = int(np.average(mass_x))
-            # cent_y = int(np.average(mass_y))
-            # # print(cent_x, cent_y)
-            # height = depth_img[cent_x, cent_y]
-
+            # calculate the coodinate using the fov
             # depth fov of D435i: 87° x 58°
             # rgb fov of D435i: 69° x 42°
-            # calculate the coodinate using the fov
-            ang_x = math.radians((cent_x - 50) / (W / 2) * (87 / 2))
-            ang_y = math.radians((cent_y - 50) / (H / 2) * (58 / 2))
-            x_dis = math.tan(ang_x) * height
-            y_dis = math.tan(ang_y) * height
+            # ang_x = math.radians((cent_x - 50) / (W / 2) * (87 / 2))
+            # ang_y = math.radians((cent_y - 50) / (H / 2) * (58 / 2))
+            # x_dis = math.tan(ang_x) * height
+            # y_dis = math.tan(ang_y) * height
+            
+            # use official functions to obtain the coodinate
+            intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
+            cent_x_full_frame = cent_x + int(W/2) - 50
+            cent_y_full_frame = cent_y + int(H/2) - 50
+            point = rs.rs2_deproject_pixel_to_point(intrinsics,[cent_x_full_frame, cent_y_full_frame],height)
+            x_dis, y_dis, height = point
 
             # print('X:', x_dis, 'Y:', y_dis, 'Z:', height)
             # send the coodinate signal
             self.position_signal.emit(np.array([y_dis, x_dis, height]))
+            
+            # temporal differential for obtaining the velocity
+            current_time = time.time() 
+            self.positions.append((x_dis, y_dis))
+            self.timestamps.append(current_time)
+
+            # 10 frames
+            if len(self.positions) > 10:
+                self.positions.pop(0)
+                self.timestamps.pop(0)
+
+            if len(self.positions) > 1:
+                dx = self.positions[-1][0] - self.positions[0][0]
+                dy = self.positions[-1][1] - self.positions[0][1]
+                dt = self.timestamps[-1] - self.timestamps[0]
+                vx = dx / dt
+                vy = dy / dt
+                print("velocity_x:",vx)
+                print("velocity_y:",vy)
+                self.velocity_signal.emit(np.array([vx, vy]))
             
             # draw the rendering area
             cv2.circle(depth_img, (cent_y, cent_x), 5, (255, 255, 255), -1)
@@ -278,8 +301,10 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Sequential Line Search")
-        self.video_thread = VideoThread()
+        # Start the threads
         self.autd_thread = AUTDThread()
+        # The realsense thread is the class member of AUTDThread()
+        self.video_thread = self.autd_thread.video_thread
 
         self.image_disp_w_h = 320
 
