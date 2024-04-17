@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-04-17 16:21:29
+LastEditTime: 2024-04-17 18:40:50
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -132,7 +132,7 @@ class AUTDThread(QThread):
     
     @pyqtSlot(np.ndarray)
     def VelocitySignal(self, v):
-        self.vx = abs(v[0]) // 4.5
+        self.vx = abs(v[0]) // 15
         self.vy = v[1]
         print("Real time F:", int(abs(self.v_factor * self.vx) * FREQUENCY_LIST[0]))
         if self.vx < 1:
@@ -234,9 +234,12 @@ class VideoThread(QThread):
 
         self.pipeline = rs.pipeline()
         self.config = rs.config()
-        self.config.enable_stream(rs.stream.depth, 640, 360, rs.format.z16, 60)
+        # self.config.enable_stream(rs.stream.depth, 640, 360, rs.format.z16, 60)
+        self.config.enable_stream(rs.stream.depth, 848, 100, rs.format.z16, 300)
         self.positions = []
         self.timestamps = []
+        
+        self.cent_list = []
 
     def run(self):
         # Start streaming
@@ -255,7 +258,7 @@ class VideoThread(QThread):
             depth_frame = filter.process(depth_frame)
             depth_img = np.asanyarray(depth_frame.get_data())
             # the contact area, 100 x 100 pix
-            depth_img = depth_img[int(H/2)-50:int(H/2)+50, int(W/2)-50:int(W/2)+50]
+            depth_img = depth_img[int(H/2)-40:int(H/2)+40, int(W/2)-75:int(W/2)+75]
             
             # the avg height of 20 closest points
             min_x, min_y = np.where(depth_img > 0)
@@ -269,6 +272,11 @@ class VideoThread(QThread):
             cent_x = int(np.average(min_x))
             cent_y = int(np.average(min_y))
             height = depth_img[cent_x, cent_y]
+            
+            self.cent_list.append((cent_x, cent_y))
+            cent_mean = np.average(np.array(self.cent_list), axis=0, weights=list(range(1,len(self.cent_list)+1)))
+            cent_x = int(cent_mean[0])
+            cent_y = int(cent_mean[1])
 
             # calculate the coodinate using the fov
             # depth fov of D435i: 87° x 58°
@@ -280,22 +288,22 @@ class VideoThread(QThread):
             
             # use official functions to obtain the coodinate
             intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
-            cent_x_full_frame = cent_x + int(W/2) - 50
-            cent_y_full_frame = cent_y + int(H/2) - 50
+            cent_x_full_frame = cent_x + int(W/2) - 40
+            cent_y_full_frame = cent_y + int(H/2) - 75
             point = rs.rs2_deproject_pixel_to_point(intrinsics,[cent_x_full_frame, cent_y_full_frame],height)
             x_dis, y_dis, height = point
 
             # print('X:', x_dis, 'Y:', y_dis, 'Z:', height)
             # send the coodinate signal
+            self.positions.append((x_dis, y_dis))
             self.position_signal.emit(np.array([y_dis, x_dis, height]))
             
             # temporal differential for obtaining the velocity
             current_time = time.time() 
-            self.positions.append((x_dis, y_dis))
             self.timestamps.append(current_time)
 
-            # 20 frames
-            if len(self.positions) > 20:
+            if len(self.positions) > 25:
+                self.cent_list.pop(0)
                 self.positions.pop(0)
                 self.timestamps.pop(0)
 
