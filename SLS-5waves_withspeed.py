@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-04-17 16:15:12
+LastEditTime: 2024-04-17 16:21:29
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -234,13 +234,7 @@ class VideoThread(QThread):
 
         self.pipeline = rs.pipeline()
         self.config = rs.config()
-        pipeline_wrapper = rs.pipeline_wrapper(self.pipeline)
-        pipeline_profile = self.config.resolve(pipeline_wrapper)
-        device = pipeline_profile.get_device()
-        device_product_line = str(device.get_info(rs.camera_info.product_line))
-        print(device_product_line)
-
-        self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+        self.config.enable_stream(rs.stream.depth, 640, 360, rs.format.z16, 60)
         self.positions = []
         self.timestamps = []
 
