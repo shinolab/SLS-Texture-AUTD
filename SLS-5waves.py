@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-04-10 23:38:59
+LastEditTime: 2024-04-17 14:46:34
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -214,6 +214,9 @@ class VideoThread(QThread):
         self.pipeline = rs.pipeline()
         self.config = rs.config()
         self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
+        
+        self.positions = []
+        self.timestamps = []
 
     def run(self):
         # Start streaming
@@ -284,7 +287,7 @@ class VideoThread(QThread):
                 vy = dy / dt
                 print("velocity_x:",vx)
                 print("velocity_y:",vy)
-                self.velocity_signal.emit(np.array([vx, vy]))
+                # self.velocity_signal.emit(np.array([vx, vy]))
             
             # draw the rendering area
             cv2.circle(depth_img, (cent_y, cent_x), 5, (255, 255, 255), -1)
