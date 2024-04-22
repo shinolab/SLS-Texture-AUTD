@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-04-17 14:46:34
+LastEditTime: 2024-04-22 18:12:30
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -161,7 +161,7 @@ class AUTDThread(QThread):
         send_time = 0.0027  # The time cost of send infomation to AUTDs
         sleep_time = time_step - send_time  # The real sleep time
         theta = 0
-        config = Silencer()
+        config = Silencer().disable()
         autd.send(config)
 
         print('press ctrl+c to finish...')
