@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-04-17 18:42:38
+LastEditTime: 2024-04-22 18:12:05
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -164,8 +164,8 @@ class AUTDThread(QThread):
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos),  12.5, 0.], [0., pi/12, 0.]))
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos), -DEVICE_HEIGHT - 12.5, 0.], [0., pi/12, 0.]))
             # .advanced_mode()
-            .open_with(Simulator(8080))
-            # .open_with(SOEM().with_on_lost(on_lost_func))
+            # .open_with(Simulator(8080))
+            .open_with(SOEM().with_on_lost(on_lost_func))
             # .open_with(TwinCAT())
         )
 
@@ -181,7 +181,7 @@ class AUTDThread(QThread):
         send_time = 0.0027  # The time cost of send infomation to AUTDs
         sleep_time = time_step - send_time  # The real sleep time
         theta = 0
-        config = Silencer()
+        config = Silencer().disable()
         autd.send(config)
 
         print('press ctrl+c to finish...')
@@ -357,7 +357,7 @@ class MainWindow(QWidget):
         layout.addWidget(self.sinusoid_widget)
 
         horizontal_layout = QHBoxLayout()
-        labels = ["F_STM", "R", "v_factor", "10 Hz", "50 Hz", "80 Hz", "100 Hz", "250 Hz"]
+        labels = ["F_STM", "R", "v_factor", "10 Hz", "50 Hz", "80 Hz", "100 Hz", "200 Hz"]
         for i in range(WAVE_NUM + 3):
             vertical_slider = QSlider(Qt.Vertical)
             vertical_slider.setRange(0, 100)
