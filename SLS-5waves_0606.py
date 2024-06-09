@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-06-03 18:25:19
+LastEditTime: 2024-04-10 23:38:59
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -99,6 +99,12 @@ class AUTDThread(QThread):
         # initial parameters
         self.coordinate = np.array([0., 0., 210.])
         self.m = Sine(100)
+        #group modulation for 4 focuses
+        #self.m1 = Sine(50)
+        #self.m2 = Sine(100)
+        #self.m3 = Sine(150)
+        #self.m4 = Sine(200)
+        #group modulation ends
 
         # import the HighPrecisionSleep() method
         dll = ctypes.cdll.LoadLibrary
@@ -144,8 +150,8 @@ class AUTDThread(QThread):
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos),  12.5, 0.], [0., pi/12, 0.]))
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos), -DEVICE_HEIGHT - 12.5, 0.], [0., pi/12, 0.]))
             # .advanced_mode()
-            # .open_with(Simulator(8080))
-            .open_with(SOEM().with_on_lost(on_lost_func))
+            .open_with(Simulator(8080))
+            # .open_with(SOEM().with_on_lost(on_lost_func))
             # .open_with(TwinCAT())
         )
 
@@ -157,11 +163,34 @@ class AUTDThread(QThread):
 
         center = autd.geometry.center + np.array([0., 0., 0.])
 
+        #group method begin
+        #cx = autd.geometry.center[0]
+        #cy = autd.geometry.center[1]
+        #g1 = Focus(autd.geometry.center + np.array([-50, -50, 150]))
+        ## g2 = Null()
+        #g2 = Focus(autd.geometry.center + np.array([50, -50, 150]))
+        #g3 = Focus(autd.geometry.center + np.array([-50, 50, 150]))
+        #g4 = Focus(autd.geometry.center + np.array([50, 50, 150]))
+
+        ##g = Group(lambda _, tr: "focus" if tr.position[0] < cx else "null").set("focus", g1).set("null", g2)
+        #g = Group(lambda _, tr:
+        #    "focus1" if tr.position[0] < cx and tr.position[1] < cy else
+        #    "focus2" if tr.position[0] > cx and tr.position[1] < cy else
+        #    "focus3" if tr.position[0] < cx and tr.position[1] > cy else
+        #    "focus4" if tr.position[0] > cx and tr.position[1] > cy else
+        #     "null")
+        #g.set("focus1", g1)
+        #g.set("focus2", g2)
+        #g.set("focus3", g3)
+        #g.set("focus4", g4)
+        #g.set("null", Null())
+        #group end
+
         time_step = 0.003   # The expected time step
         send_time = 0.0027  # The time cost of send infomation to AUTDs
         sleep_time = time_step - send_time  # The real sleep time
         theta = 0
-        config = Silencer().disable()
+        config = Silencer()
         autd.send(config)
 
         print('press ctrl+c to finish...')
@@ -185,8 +214,13 @@ class AUTDThread(QThread):
                 f = Focus(center + p)
                 # tic = time.time()
                 autd.send((self.m, f), timeout=timedelta(milliseconds=0))
-
+                #group part
+                #autd.send((m1, g1))
+                #autd.send((m2, g2))
+                #autd.send((m3, g3))
+                #autd.send((m4, g4))
                 theta += 2 * np.pi * stm_f * time_step
+                #group ends
 
                 self.libc.HighPrecisionSleep(ctypes.c_float(sleep_time))  # cpp sleep function
                 # toc = time.time()
@@ -214,14 +248,11 @@ class VideoThread(QThread):
         self.pipeline = rs.pipeline()
         self.config = rs.config()
         self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-        
-        self.positions = []
-        self.timestamps = []
 
     def run(self):
         # Start streaming
         self.pipeline.start(self.config)
-
+        past_frames = []
         while self._run_flag:
             frames = self.pipeline.wait_for_frames()
             depth_frame = frames.get_depth_frame()
@@ -236,18 +267,30 @@ class VideoThread(QThread):
             depth_img = np.asanyarray(depth_frame.get_data())
             # the contact area, 100 x 100 pix
             depth_img = depth_img[int(H/2)-50:int(H/2)+50, int(W/2)-50:int(W/2)+50]
-            
+            past_frames.append(depth_img)
+            if len(past_frames) > 10:
+                past_frames.pop(0)
             # the avg height of 20 closest points
+
             min_x, min_y = np.where(depth_img > 0)
             if min_x.size == 0 or min_y.size == 0:
                 continue
-            
-            nonzero_indices = np.argwhere(depth_img != 0)
-            nonzero_values = depth_img[nonzero_indices[:, 0], nonzero_indices[:, 1]]
-            min_x, min_y = np.transpose(nonzero_indices[np.argsort(nonzero_values)[:20]])
-            # mass_x and mass_y are the list of x indices and y indices of mass pixels
-            cent_x = int(np.average(min_x))
-            cent_y = int(np.average(min_y))
+
+            nearest_points_per_frame = []
+            for past_frame in past_frames:
+                nonzero_indices = np.argwhere(depth_img != 0)
+                nonzero_values = depth_img[nonzero_indices[:, 0], nonzero_indices[:, 1]]
+                sorted_indices = np.argsort(nonzero_values)
+                sorted_nonzero_indices = nonzero_indices[sorted_indices]
+                #nearest_points_per_frame.append(sorted_nonzero_indices[:20])
+                min_x, min_y = np.transpose(sorted_nonzero_indices[:20])
+                nearest_points_per_frame.append(min_x, min_y)
+                # mass_x and mass_y are the list of x indices and y indices of mass pixels
+            nearest_points_per_frame = np.array(nearest_points_per_frame)
+            average_position = np.mean(nearest_points_per_frame[-10:], axis=0)
+
+            cent_x = int(np.mean(average_position[:, 0]))
+            cent_y = int(np.mean(average_position[:, 1]))
             height = depth_img[cent_x, cent_y]
 
             # calculate the coodinate using the fov
@@ -287,7 +330,7 @@ class VideoThread(QThread):
                 vy = dy / dt
                 print("velocity_x:",vx)
                 print("velocity_y:",vy)
-                # self.velocity_signal.emit(np.array([vx, vy]))
+                self.velocity_signal.emit(np.array([vx, vy]))
             
             # draw the rendering area
             cv2.circle(depth_img, (cent_y, cent_x), 5, (255, 255, 255), -1)
