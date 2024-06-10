@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-06-09 17:07:18
+LastEditTime: 2024-06-10 19:28:18
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -145,8 +145,8 @@ class AUTDThread(QThread):
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos),  12.5, 0.], [0., pi/12, 0.]))
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos), -DEVICE_HEIGHT - 12.5, 0.], [0., pi/12, 0.]))
             # .advanced_mode()
-            .open_with(Simulator(8080))
-            # .open_with(SOEM().with_on_lost(on_lost_func))
+            # .open_with(Simulator(8080))
+            .open_with(SOEM().with_on_lost(on_lost_func))
             # .open_with(TwinCAT())
         )
 
@@ -159,8 +159,6 @@ class AUTDThread(QThread):
         center = autd.geometry.center + np.array([0., 0., 0.])
 
         time_step = 0.01
-        send_time = 0.009
-        sleep_time = time_step - send_time
         theta = 0
         theta_horizontal = 0
         config = Silencer()
@@ -171,17 +169,17 @@ class AUTDThread(QThread):
         try:
             while self._run_flag:
                 stm_f = 10
-                radius = 6
+                radius = 8
                 
-                horizontal_range_r = 10
-                f_horizontal = 0.5
+                horizontal_range_r = 0.5
+                f_horizontal = 1
 
                 # ... change the radius and height here
                 x = self.coordinate[0]
                 y = self.coordinate[1]
                 # D435i depth start point: -4.2 mm
                 # the height difference between the transducer surface and the camera: 9 mm
-                height = self.coordinate[2] - 20 - 4.2
+                height = self.coordinate[2] - 52 - 4.2
                 
                 # update the focus information
                 p = radius * np.array([np.cos(theta), np.sin(theta), 0])
@@ -189,7 +187,7 @@ class AUTDThread(QThread):
                 
                 horizontal_step = horizontal_range_r * np.array([np.cos(theta_horizontal), 0, 0])
                 center += horizontal_step
-                print(center)
+                # print(center)
                 
                 f = Focus(center + p)
                 tic = time.time()
@@ -197,10 +195,10 @@ class AUTDThread(QThread):
 
                 theta += 2 * np.pi * stm_f * time_step
                 theta_horizontal += 2 * np.pi * f_horizontal * time_step
-
-                self.libc.HighPrecisionSleep(ctypes.c_float(sleep_time))  # cpp sleep function
                 toc = time.time()
-                # print(toc-tic)
+                send_time = toc - tic
+
+                self.libc.HighPrecisionSleep(ctypes.c_float(time_step - send_time))  # cpp sleep function
 
         except KeyboardInterrupt:
             pass
@@ -225,7 +223,7 @@ class VideoThread(QThread):
     def run(self):
         # Start streaming
         self.pipeline.start(self.config)
-        past_frames = []
+
         while self._run_flag:
             frames = self.pipeline.wait_for_frames()
             depth_frame = frames.get_depth_frame()
@@ -234,11 +232,13 @@ class VideoThread(QThread):
             
             W = depth_frame.get_width()
             H = depth_frame.get_height()
-            # the height range: 0 ~ 21 cm
-            filter = rs.threshold_filter(min_dist=0, max_dist=0.21)
+            # the height range: 0 ~ 23 cm
+            filter = rs.threshold_filter(min_dist=0, max_dist=0.23)
             depth_frame = filter.process(depth_frame)
             depth_img = np.asanyarray(depth_frame.get_data())
-
+            # the contact area
+            depth_img = depth_img[int(H/2)-5:int(H/2)+5, int(W/2)-5:int(W/2)+5]
+            
             min_x, min_y = np.where(depth_img > 0)
             if min_x.size == 0 or min_y.size == 0:
                 continue
@@ -330,9 +330,9 @@ class MainWindow(QWidget):
 
         self.updateValues(_update_optimizer_flag=False)
         # connect its signal to the update_image slot
-        # self.video_thread.change_pixmap_signal.connect(self.update_image)
+        self.video_thread.change_pixmap_signal.connect(self.update_image)
         # start the thread
-        # self.video_thread.start()
+        self.video_thread.start()
         self.autd_thread.start()
 
     def closeEvent(self, event):

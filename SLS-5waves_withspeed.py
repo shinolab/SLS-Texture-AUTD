@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-04-22 18:12:05
+LastEditTime: 2024-06-10 19:04:42
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -257,7 +257,7 @@ class VideoThread(QThread):
             filter = rs.threshold_filter(min_dist=0, max_dist=0.21)
             depth_frame = filter.process(depth_frame)
             depth_img = np.asanyarray(depth_frame.get_data())
-            # the contact area, 100 x 100 pix
+            # the contact area
             depth_img = depth_img[int(H/2)-40:int(H/2)+40, int(W/2)-75:int(W/2)+75]
             
             # the avg height of 20 closest points
