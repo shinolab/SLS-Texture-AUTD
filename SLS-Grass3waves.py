@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-06-10 19:28:18
+LastEditTime: 2024-06-10 19:37:27
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -171,8 +171,8 @@ class AUTDThread(QThread):
                 stm_f = 10
                 radius = 8
                 
-                horizontal_range_r = 0.5
-                f_horizontal = 1
+                horizontal_range_r = 15
+                f_horizontal = 0.6
 
                 # ... change the radius and height here
                 x = self.coordinate[0]
@@ -186,10 +186,8 @@ class AUTDThread(QThread):
                 p += np.array([x, y, height])
                 
                 horizontal_step = horizontal_range_r * np.array([np.cos(theta_horizontal), 0, 0])
-                center += horizontal_step
-                # print(center)
                 
-                f = Focus(center + p)
+                f = Focus(center + horizontal_step + p)
                 tic = time.time()
                 autd.send((self.m, f), timeout=timedelta(milliseconds=0))
 
@@ -233,7 +231,7 @@ class VideoThread(QThread):
             W = depth_frame.get_width()
             H = depth_frame.get_height()
             # the height range: 0 ~ 23 cm
-            filter = rs.threshold_filter(min_dist=0, max_dist=0.23)
+            filter = rs.threshold_filter(min_dist=0, max_dist=0.25)
             depth_frame = filter.process(depth_frame)
             depth_img = np.asanyarray(depth_frame.get_data())
             # the contact area
