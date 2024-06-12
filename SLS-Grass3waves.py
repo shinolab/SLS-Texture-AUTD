@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-06-12 17:04:31
+LastEditTime: 2024-06-12 17:16:18
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -309,10 +309,6 @@ class MainWindow(QWidget):
         layout.addWidget(self.horizontal_slider)
 
         self.optimizer = pySequentialLineSearch.SequentialLineSearchOptimizer(num_dims=7)
-
-        self.optimizer.set_hyperparams(kernel_signal_var=0.50,
-                                kernel_length_scale=0.10,
-                                kernel_hyperparams_prior_var=0.10)
         
         self.optimizer.set_gaussian_process_upper_confidence_bound_hyperparam(5.)
 
