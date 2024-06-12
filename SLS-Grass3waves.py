@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-06-10 19:37:27
+LastEditTime: 2024-06-12 17:04:31
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -118,6 +118,7 @@ class AUTDThread(QThread):
         self.m = Fourier(Sine(freq=int(SLS_para[0])).with_amp(SLS_para[1]))
         self.m.add_component(Sine(freq=int(SLS_para[2])).with_amp(SLS_para[3]))
         self.m.add_component(Sine(freq=int(SLS_para[4])).with_amp(SLS_para[5]))
+        self.f_horizontal = SLS_para[6]
     
     # slot function to accept coordinates
     @pyqtSlot(np.ndarray)
@@ -172,7 +173,6 @@ class AUTDThread(QThread):
                 radius = 8
                 
                 horizontal_range_r = 15
-                f_horizontal = 0.6
 
                 # ... change the radius and height here
                 x = self.coordinate[0]
@@ -192,7 +192,7 @@ class AUTDThread(QThread):
                 autd.send((self.m, f), timeout=timedelta(milliseconds=0))
 
                 theta += 2 * np.pi * stm_f * time_step
-                theta_horizontal += 2 * np.pi * f_horizontal * time_step
+                theta_horizontal += 2 * np.pi * self.f_horizontal * time_step
                 toc = time.time()
                 send_time = toc - tic
 
@@ -290,8 +290,8 @@ class MainWindow(QWidget):
         layout.addWidget(self.sinusoid_widget)
 
         horizontal_layout = QHBoxLayout()
-        labels = ["F_low", "A_low", "F_mid", "A_mid", "F_high", "A_high"]
-        for i in range(6):
+        labels = ["F_low", "A_low", "F_mid", "A_mid", "F_high", "A_high", "Moving Speed"]
+        for i in range(len(labels)):
             vertical_slider = QSlider(Qt.Vertical)
             vertical_slider.setRange(0, 100)
             vertical_slider.setEnabled(False)
@@ -308,7 +308,7 @@ class MainWindow(QWidget):
         layout.addLayout(horizontal_layout)
         layout.addWidget(self.horizontal_slider)
 
-        self.optimizer = pySequentialLineSearch.SequentialLineSearchOptimizer(num_dims=6)
+        self.optimizer = pySequentialLineSearch.SequentialLineSearchOptimizer(num_dims=7)
 
         self.optimizer.set_hyperparams(kernel_signal_var=0.50,
                                 kernel_length_scale=0.10,
@@ -376,12 +376,15 @@ class MainWindow(QWidget):
         freq_h = int(100 + optmized_para[4] * 200)  # high frequency 100~300Hz
         amp_h = optmized_para[5]
         #phase_h = optmized_para[8] * 2 * math.pi
+        
+        speed = 0.2 + optmized_para[6] * 0.8
 
         # print('f_STM:', stm_freq, '\tradius: ', radius, '\tf_wave: ', freq, '\tamp: ', amp)
         
         self.autd_thread.SLS_para_signal.emit(np.array([freq_l, amp_l,
                                                         freq_m, amp_m,
-                                                        freq_h, amp_h]))
+                                                        freq_h, amp_h,
+                                                        speed]))
 
         # offset = -0.5 * amp + 1
         self.sinusoid_widget.setAmplitude([amp_l, amp_m, amp_h])
