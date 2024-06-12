@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-06-12 17:16:18
+LastEditTime: 2024-06-13 00:53:34
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -146,8 +146,8 @@ class AUTDThread(QThread):
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos),  12.5, 0.], [0., pi/12, 0.]))
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos), -DEVICE_HEIGHT - 12.5, 0.], [0., pi/12, 0.]))
             # .advanced_mode()
-            # .open_with(Simulator(8080))
-            .open_with(SOEM().with_on_lost(on_lost_func))
+            .open_with(Simulator(8080))
+            # .open_with(SOEM().with_on_lost(on_lost_func))
             # .open_with(TwinCAT())
         )
 
@@ -294,8 +294,8 @@ class MainWindow(QWidget):
         for i in range(len(labels)):
             vertical_slider = QSlider(Qt.Vertical)
             vertical_slider.setRange(0, 100)
-            vertical_slider.setEnabled(False)
             self.vertical_sliders.append(vertical_slider)
+            vertical_slider.valueChanged.connect(lambda value, idx=i: self.updateSlider(value, idx))
 
             label = QLabel(labels[i])
 
@@ -330,7 +330,7 @@ class MainWindow(QWidget):
         self.autd_thread.start()
 
     def closeEvent(self, event):
-        # self.video_thread.stop()
+        self.video_thread.stop()
         self.autd_thread.stop()
         event.accept()
 
@@ -348,6 +348,26 @@ class MainWindow(QWidget):
         convert_to_Qt_format = QtGui.QImage(rgb_image.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888)
         p = convert_to_Qt_format.scaled(self.image_disp_w_h, self.image_disp_w_h, Qt.KeepAspectRatio)
         return QPixmap.fromImage(p)
+    
+    def updateSlider(self, value, index):
+        p = value / 100.0
+        if index == 0:
+            self.para_list[0] = int(10 + p * 20)    # low frequency 10~30Hz
+        if index == 1:
+            self.para_list[1] = p
+        if index == 2:
+            self.para_list[2] = int(30 + p * 70)    # mid frequency 30~100Hz
+        if index == 3:
+            self.para_list[3] = p
+        if index == 4:
+            self.para_list[4] = int(100 + p * 200)  # high frequency 100~300Hz
+        if index == 5:
+            self.para_list[5] = p
+        if index == 6:
+            self.para_list[6] = 0.2 + p * 0.8
+        self.autd_thread.SLS_para_signal.emit(np.array(self.para_list))
+        self.sinusoid_widget.setAmplitude([self.para_list[1], self.para_list[3], self.para_list[5]])
+        self.sinusoid_widget.setFrequency([self.para_list[0], self.para_list[2], self.para_list[4]])
 
     def updateValues(self, _update_optimizer_flag):
         slider_position = self.horizontal_slider.value() / 999.0
@@ -363,30 +383,22 @@ class MainWindow(QWidget):
         
         freq_l = int(10 + optmized_para[0] * 20)    # low frequency 10~30Hz
         amp_l = optmized_para[1]
-        #phase_l = optmized_para[2] * 2 * math.pi
 
         freq_m = int(30 + optmized_para[2] * 70)    # mid frequency 30~100Hz
         amp_m = optmized_para[3]
-        #phase_m = optmized_para[5] * 2 * math.pi
 
         freq_h = int(100 + optmized_para[4] * 200)  # high frequency 100~300Hz
         amp_h = optmized_para[5]
-        #phase_h = optmized_para[8] * 2 * math.pi
         
         speed = 0.2 + optmized_para[6] * 0.8
-
-        # print('f_STM:', stm_freq, '\tradius: ', radius, '\tf_wave: ', freq, '\tamp: ', amp)
         
-        self.autd_thread.SLS_para_signal.emit(np.array([freq_l, amp_l,
-                                                        freq_m, amp_m,
-                                                        freq_h, amp_h,
-                                                        speed]))
+        self.para_list = [freq_l, amp_l, freq_m, amp_m, freq_h, amp_h, speed]
+        
+        self.autd_thread.SLS_para_signal.emit(np.array(self.para_list))
 
         # offset = -0.5 * amp + 1
-        self.sinusoid_widget.setAmplitude([amp_l, amp_m, amp_h])
-        # self.sinusoid_widget.setOffset(offset)
-        self.sinusoid_widget.setFrequency([freq_l, freq_m, freq_h])
-        #self.sinusoid_widget.setPhase([phase_l, phase_m, phase_h])
+        self.sinusoid_widget.setAmplitude([self.para_list[1], self.para_list[3], self.para_list[5]])
+        self.sinusoid_widget.setFrequency([self.para_list[0], self.para_list[2], self.para_list[4]])
 
         i = 0
         for vertical_slider in self.vertical_sliders:
