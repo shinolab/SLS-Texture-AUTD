@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-06-10 19:04:42
+LastEditTime: 2024-06-12 17:50:13
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -376,10 +376,6 @@ class MainWindow(QWidget):
         layout.addWidget(self.horizontal_slider)
 
         self.optimizer = pySequentialLineSearch.SequentialLineSearchOptimizer(num_dims=WAVE_NUM+3)
-
-        self.optimizer.set_hyperparams(kernel_signal_var=0.50,
-                                kernel_length_scale=0.10,
-                                kernel_hyperparams_prior_var=0.10)
         
         self.optimizer.set_gaussian_process_upper_confidence_bound_hyperparam(5.)
 
@@ -434,10 +430,10 @@ class MainWindow(QWidget):
             vertical_slider.setValue(int(optmized_para[i] * vertical_slider.maximum()))
             i += 1
 
-        optmized_para[0] = 5 + optmized_para[0] * 15     # STM_freq: 5~20Hz
-        optmized_para[1] = 2 + optmized_para[1] * 4       # STM radius: 2~6mm
+        optmized_para[0] = 6 + optmized_para[0] * 9     # STM_freq: 6~15Hz
+        optmized_para[1] = 2 + optmized_para[1] * 6       # STM radius: 2~8mm
         optmized_para[2] = optmized_para[2] * 3 # v_factor: 0~1
-        optmized_para[3:WAVE_NUM+3+1] *= 5                           # Gain of frequency components: 0~4
+        optmized_para[3:WAVE_NUM+3+1] *= 4                           # Gain of frequency components: 0~4
 
         # print('f_STM:', stm_freq, '\tradius: ', radius, '\tf_wave: ', freq, '\tamp: ', amp)
         
