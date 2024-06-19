@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-06-10 19:37:27
+LastEditTime: 2024-06-19 23:40:42
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -25,6 +25,10 @@ import cv2
 import os
 import ctypes
 import platform
+import socket
+
+HOST = '127.0.0.1'  # Unity IP
+PORT = 9090         # Unity port
 
 DEVICE_WIDTH = AUTD3.device_width()
 DEVICE_HEIGHT = AUTD3.device_height()
@@ -118,6 +122,7 @@ class AUTDThread(QThread):
         self.m = Fourier(Sine(freq=int(SLS_para[0])).with_amp(SLS_para[1]))
         self.m.add_component(Sine(freq=int(SLS_para[2])).with_amp(SLS_para[3]))
         self.m.add_component(Sine(freq=int(SLS_para[4])).with_amp(SLS_para[5]))
+        self.f_horizontal = SLS_para[6]
     
     # slot function to accept coordinates
     @pyqtSlot(np.ndarray)
@@ -145,8 +150,8 @@ class AUTDThread(QThread):
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos),  12.5, 0.], [0., pi/12, 0.]))
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos), -DEVICE_HEIGHT - 12.5, 0.], [0., pi/12, 0.]))
             # .advanced_mode()
-            # .open_with(Simulator(8080))
-            .open_with(SOEM().with_on_lost(on_lost_func))
+            .open_with(Simulator(8080))
+            # .open_with(SOEM().with_on_lost(on_lost_func))
             # .open_with(TwinCAT())
         )
 
@@ -172,7 +177,6 @@ class AUTDThread(QThread):
                 radius = 8
                 
                 horizontal_range_r = 15
-                f_horizontal = 0.6
 
                 # ... change the radius and height here
                 x = self.coordinate[0]
@@ -192,7 +196,7 @@ class AUTDThread(QThread):
                 autd.send((self.m, f), timeout=timedelta(milliseconds=0))
 
                 theta += 2 * np.pi * stm_f * time_step
-                theta_horizontal += 2 * np.pi * f_horizontal * time_step
+                theta_horizontal += 2 * np.pi * self.f_horizontal * time_step
                 toc = time.time()
                 send_time = toc - tic
 
@@ -269,6 +273,9 @@ class MainWindow(QWidget):
         self.autd_thread = AUTDThread()
         # The realsense thread is the class member of AUTDThread()
         self.video_thread = self.autd_thread.video_thread
+        # Connect to Unity
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((HOST, PORT))
 
         self.image_disp_w_h = 320
 
@@ -290,12 +297,12 @@ class MainWindow(QWidget):
         layout.addWidget(self.sinusoid_widget)
 
         horizontal_layout = QHBoxLayout()
-        labels = ["F_low", "A_low", "F_mid", "A_mid", "F_high", "A_high"]
-        for i in range(6):
+        labels = ["F_low", "A_low", "F_mid", "A_mid", "F_high", "A_high", "Moving Speed"]
+        for i in range(len(labels)):
             vertical_slider = QSlider(Qt.Vertical)
             vertical_slider.setRange(0, 100)
-            vertical_slider.setEnabled(False)
             self.vertical_sliders.append(vertical_slider)
+            vertical_slider.valueChanged.connect(lambda value, idx=i: self.updateSlider(value, idx))
 
             label = QLabel(labels[i])
 
@@ -308,11 +315,7 @@ class MainWindow(QWidget):
         layout.addLayout(horizontal_layout)
         layout.addWidget(self.horizontal_slider)
 
-        self.optimizer = pySequentialLineSearch.SequentialLineSearchOptimizer(num_dims=6)
-
-        self.optimizer.set_hyperparams(kernel_signal_var=0.50,
-                                kernel_length_scale=0.10,
-                                kernel_hyperparams_prior_var=0.10)
+        self.optimizer = pySequentialLineSearch.SequentialLineSearchOptimizer(num_dims=7)
         
         self.optimizer.set_gaussian_process_upper_confidence_bound_hyperparam(5.)
 
@@ -328,14 +331,15 @@ class MainWindow(QWidget):
 
         self.updateValues(_update_optimizer_flag=False)
         # connect its signal to the update_image slot
-        self.video_thread.change_pixmap_signal.connect(self.update_image)
+        # self.video_thread.change_pixmap_signal.connect(self.update_image)
         # start the thread
-        self.video_thread.start()
+        # self.video_thread.start()
         self.autd_thread.start()
 
     def closeEvent(self, event):
         # self.video_thread.stop()
         self.autd_thread.stop()
+        self.sock.close()
         event.accept()
 
     @pyqtSlot(np.ndarray)
@@ -352,6 +356,28 @@ class MainWindow(QWidget):
         convert_to_Qt_format = QtGui.QImage(rgb_image.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888)
         p = convert_to_Qt_format.scaled(self.image_disp_w_h, self.image_disp_w_h, Qt.KeepAspectRatio)
         return QPixmap.fromImage(p)
+    
+    def updateSlider(self, value, index):
+        p = value / 100.0
+        if index == 0:
+            self.para_list[0] = int(10 + p * 20)    # low frequency 10~30Hz
+        if index == 1:
+            self.para_list[1] = p
+        if index == 2:
+            self.para_list[2] = int(30 + p * 70)    # mid frequency 30~100Hz
+        if index == 3:
+            self.para_list[3] = p
+        if index == 4:
+            self.para_list[4] = int(100 + p * 200)  # high frequency 100~300Hz
+        if index == 5:
+            self.para_list[5] = p
+        if index == 6:
+            self.para_list[6] = 0.2 + p * 0.8
+        self.autd_thread.SLS_para_signal.emit(np.array(self.para_list))
+        self.sock.sendall(str(self.para_list).encode())
+        print(self.para_list)
+        self.sinusoid_widget.setAmplitude([self.para_list[1], self.para_list[3], self.para_list[5]])
+        self.sinusoid_widget.setFrequency([self.para_list[0], self.para_list[2], self.para_list[4]])
 
     def updateValues(self, _update_optimizer_flag):
         slider_position = self.horizontal_slider.value() / 999.0
@@ -367,27 +393,23 @@ class MainWindow(QWidget):
         
         freq_l = int(10 + optmized_para[0] * 20)    # low frequency 10~30Hz
         amp_l = optmized_para[1]
-        #phase_l = optmized_para[2] * 2 * math.pi
 
         freq_m = int(30 + optmized_para[2] * 70)    # mid frequency 30~100Hz
         amp_m = optmized_para[3]
-        #phase_m = optmized_para[5] * 2 * math.pi
 
         freq_h = int(100 + optmized_para[4] * 200)  # high frequency 100~300Hz
         amp_h = optmized_para[5]
-        #phase_h = optmized_para[8] * 2 * math.pi
-
-        # print('f_STM:', stm_freq, '\tradius: ', radius, '\tf_wave: ', freq, '\tamp: ', amp)
         
-        self.autd_thread.SLS_para_signal.emit(np.array([freq_l, amp_l,
-                                                        freq_m, amp_m,
-                                                        freq_h, amp_h]))
+        speed = 0.2 + optmized_para[6] * 0.8
+        
+        self.para_list = [freq_l, amp_l, freq_m, amp_m, freq_h, amp_h, speed]
+        self.sock.sendall(str(self.para_list).encode())
+        
+        self.autd_thread.SLS_para_signal.emit(np.array(self.para_list))
 
         # offset = -0.5 * amp + 1
-        self.sinusoid_widget.setAmplitude([amp_l, amp_m, amp_h])
-        # self.sinusoid_widget.setOffset(offset)
-        self.sinusoid_widget.setFrequency([freq_l, freq_m, freq_h])
-        #self.sinusoid_widget.setPhase([phase_l, phase_m, phase_h])
+        self.sinusoid_widget.setAmplitude([self.para_list[1], self.para_list[3], self.para_list[5]])
+        self.sinusoid_widget.setFrequency([self.para_list[0], self.para_list[2], self.para_list[4]])
 
         i = 0
         for vertical_slider in self.vertical_sliders:
