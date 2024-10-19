@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-10-19 18:06:59
+LastEditTime: 2024-10-19 18:19:10
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -89,8 +89,8 @@ class AUTDThread(QThread):
 
         center = autd.geometry.center + np.array([0., 0., 0.])
 
-        time_step = 0.003   # The expected time step
-        send_time = 0.0027  # The time cost of send infomation to AUTDs
+        time_step = 0.0015   # The expected time step
+        send_time = 0.001  # The time cost of send infomation to AUTDs
         sleep_time = time_step - send_time  # The real sleep time
         theta = 0
         config = Silencer().disable()
@@ -152,9 +152,11 @@ class VideoThread(QThread):
         
     def getHeightMap(self):
         # Test height map
-        heightmap = np.load('10.npy')
+        heightmap = np.load('8.npy')
         heightmap = heightmap[::4,::4]
         heightmap = heightmap[int(120/2)-50:int(120/2)+50, int(160/2)-50:int(160/2)+50]
+        # print(heightmap.min(), heightmap.max())
+        # heightmap = (heightmap - heightmap.min()) / (heightmap.max() - heightmap.min())
         heightmap /= heightmap.max()
         return heightmap
 
@@ -221,7 +223,7 @@ class VideoThread(QThread):
 
             depth_img = depth_img * 0.6 + heightmap * 0.4
             
-            depth_img = cv2.convertScaleAbs(depth_img)
+            depth_img = cv2.flip(cv2.convertScaleAbs(depth_img), 0)
 
             self.change_pixmap_signal.emit(depth_img)
 
