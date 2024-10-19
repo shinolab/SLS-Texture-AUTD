@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-06-19 23:40:42
+LastEditTime: 2024-10-19 14:57:56
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -27,7 +27,7 @@ import ctypes
 import platform
 import socket
 
-HOST = '127.0.0.1'  # Unity IP
+HOST = '172.16.99.178'  # Unity IP
 PORT = 9090         # Unity port
 
 DEVICE_WIDTH = AUTD3.device_width()
@@ -150,8 +150,8 @@ class AUTDThread(QThread):
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos),  12.5, 0.], [0., pi/12, 0.]))
             .add_device(AUTD3.from_euler_zyz([-W_cos + (DEVICE_WIDTH - W_cos), -DEVICE_HEIGHT - 12.5, 0.], [0., pi/12, 0.]))
             # .advanced_mode()
-            .open_with(Simulator(8080))
-            # .open_with(SOEM().with_on_lost(on_lost_func))
+            # .open_with(Simulator(8080))
+            .open_with(SOEM().with_on_lost(on_lost_func))
             # .open_with(TwinCAT())
         )
 
@@ -274,8 +274,8 @@ class MainWindow(QWidget):
         # The realsense thread is the class member of AUTDThread()
         self.video_thread = self.autd_thread.video_thread
         # Connect to Unity
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((HOST, PORT))
+        # self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # self.sock.connect((HOST, PORT))
 
         self.image_disp_w_h = 320
 
@@ -331,15 +331,15 @@ class MainWindow(QWidget):
 
         self.updateValues(_update_optimizer_flag=False)
         # connect its signal to the update_image slot
-        # self.video_thread.change_pixmap_signal.connect(self.update_image)
+        self.video_thread.change_pixmap_signal.connect(self.update_image)
         # start the thread
-        # self.video_thread.start()
+        self.video_thread.start()
         self.autd_thread.start()
 
     def closeEvent(self, event):
-        # self.video_thread.stop()
+        self.video_thread.stop()
         self.autd_thread.stop()
-        self.sock.close()
+        # self.sock.close()
         event.accept()
 
     @pyqtSlot(np.ndarray)
@@ -374,8 +374,9 @@ class MainWindow(QWidget):
         if index == 6:
             self.para_list[6] = 0.2 + p * 0.8
         self.autd_thread.SLS_para_signal.emit(np.array(self.para_list))
-        self.sock.sendall(str(self.para_list).encode())
         print(self.para_list)
+        # self.sock.sendall(str(self.para_list).encode())
+        # print(str(self.para_list).encode())
         self.sinusoid_widget.setAmplitude([self.para_list[1], self.para_list[3], self.para_list[5]])
         self.sinusoid_widget.setFrequency([self.para_list[0], self.para_list[2], self.para_list[4]])
 
@@ -403,7 +404,8 @@ class MainWindow(QWidget):
         speed = 0.2 + optmized_para[6] * 0.8
         
         self.para_list = [freq_l, amp_l, freq_m, amp_m, freq_h, amp_h, speed]
-        self.sock.sendall(str(self.para_list).encode())
+        print(self.para_list)
+        # self.sock.sendall(str(self.para_list).encode())
         
         self.autd_thread.SLS_para_signal.emit(np.array(self.para_list))
 
