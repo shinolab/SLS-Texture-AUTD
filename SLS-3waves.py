@@ -2,7 +2,7 @@
 Author: Mingxin Zhang m.zhang@hapis.k.u-tokyo.ac.jp
 Date: 2023-06-05 16:55:37
 LastEditors: Mingxin Zhang
-LastEditTime: 2024-06-19 23:40:42
+LastEditTime: 2025-06-05 18:20:16
 Copyright (c) 2023 by Mingxin Zhang, All Rights Reserved. 
 '''
 import sys
@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import QApplication, QWidget, QSlider, QVBoxLayout, QHBoxLa
 from PyQt5.QtCore import pyqtSignal, pyqtSlot, Qt, QThread
 from PyQt5.QtGui import QPainter, QPen, QPainterPath, QPixmap
 from PyQt5 import QtGui
-from pyautd3.link import TwinCAT, SOEM, Simulator, OnLostFunc
+from pyautd3.link import SOEM, Simulator, OnLostFunc
 from pyautd3.gain import Focus
 from pyautd3 import AUTD3, Controller, Silencer, Stop
 from pyautd3.modulation import Fourier, Sine
@@ -25,10 +25,9 @@ import cv2
 import os
 import ctypes
 import platform
-import socket
-
-HOST = '127.0.0.1'  # Unity IP
-PORT = 9090         # Unity port
+import visualization
+from multiprocessing import Process, Queue
+from visualization import run_visualization_process
 
 DEVICE_WIDTH = AUTD3.device_width()
 DEVICE_HEIGHT = AUTD3.device_height()
@@ -62,6 +61,7 @@ class SinusoidWidget(QWidget):
         self._frequency = frequency
         self.update()
 
+    # Visualize the waveform
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -79,6 +79,7 @@ class SinusoidWidget(QWidget):
         painter.setPen(QPen(Qt.blue, line_thickness))
         for x in range(width):
             t = x / x_scale
+            y = 0
             y = 0.5 * self._amplitude[0] * math.sin(self._frequency[0] * t ) + self._offset[0]\
               + 0.5 * self._amplitude[1] * math.sin(self._frequency[1] * t ) + self._offset[1]\
               + 0.5 * self._amplitude[2] * math.sin(self._frequency[2] * t ) + self._offset[2]
@@ -86,7 +87,7 @@ class SinusoidWidget(QWidget):
             path.lineTo(x, height - y * y_scale)
         painter.drawPath(path)
 
-        # draw the axis
+        # Draw the axis
         axis_thickness = 10
         painter.setPen(QPen(Qt.black, axis_thickness))
         painter.drawLine(0, height, width, height)
@@ -95,14 +96,16 @@ class SinusoidWidget(QWidget):
 
 # AUTD thread
 class AUTDThread(QThread):
+    # The signal to receive the SLS parameters
     SLS_para_signal = pyqtSignal(np.ndarray)
-    position_signal = pyqtSignal(np.ndarray)
 
     def __init__(self):
         super().__init__()
-        # connect the signal to the slot function
+        # Connect the signal to the slot function
         self.SLS_para_signal.connect(self.SLSSignal)
+        # The video thread of realsense
         self.video_thread = VideoThread()
+        # Connect the signal of finger position to the slot function to update the focus
         self.video_thread.position_signal.connect(self.PositionSignal)
 
         self._run_flag = True
@@ -122,7 +125,6 @@ class AUTDThread(QThread):
         self.m = Fourier(Sine(freq=int(SLS_para[0])).with_amp(SLS_para[1]))
         self.m.add_component(Sine(freq=int(SLS_para[2])).with_amp(SLS_para[3]))
         self.m.add_component(Sine(freq=int(SLS_para[4])).with_amp(SLS_para[5]))
-        self.f_horizontal = SLS_para[6]
     
     # slot function to accept coordinates
     @pyqtSlot(np.ndarray)
@@ -163,10 +165,11 @@ class AUTDThread(QThread):
 
         center = autd.geometry.center + np.array([0., 0., 0.])
 
-        time_step = 0.01
+        time_step = 0.003   # The expected time step
+        send_time = 0.0027  # The time cost of send infomation to AUTDs
+        sleep_time = time_step - send_time  # The real sleep time
         theta = 0
-        theta_horizontal = 0
-        config = Silencer()
+        config = Silencer().disable()
         autd.send(config)
 
         print('press ctrl+c to finish...')
@@ -174,33 +177,28 @@ class AUTDThread(QThread):
         try:
             while self._run_flag:
                 stm_f = 10
-                radius = 8
-                
-                horizontal_range_r = 15
+                radius = 3
 
                 # ... change the radius and height here
                 x = self.coordinate[0]
                 y = self.coordinate[1]
                 # D435i depth start point: -4.2 mm
-                # the height difference between the transducer surface and the camera: 9 mm
+                # the height difference between the transducer origin and the camera: 52 mm
                 height = self.coordinate[2] - 52 - 4.2
                 
                 # update the focus information
                 p = radius * np.array([np.cos(theta), np.sin(theta), 0])
                 p += np.array([x, y, height])
-                
-                horizontal_step = horizontal_range_r * np.array([np.cos(theta_horizontal), 0, 0])
-                
-                f = Focus(center + horizontal_step + p)
-                tic = time.time()
+                # print(x, y, height)
+                f = Focus(center + p)
+                # tic = time.time()
                 autd.send((self.m, f), timeout=timedelta(milliseconds=0))
 
                 theta += 2 * np.pi * stm_f * time_step
-                theta_horizontal += 2 * np.pi * self.f_horizontal * time_step
-                toc = time.time()
-                send_time = toc - tic
 
-                self.libc.HighPrecisionSleep(ctypes.c_float(time_step - send_time))  # cpp sleep function
+                self.libc.HighPrecisionSleep(ctypes.c_float(sleep_time))  # cpp sleep function
+                # toc = time.time()
+                # print(toc-tic)
 
         except KeyboardInterrupt:
             pass
@@ -210,9 +208,13 @@ class AUTDThread(QThread):
         autd.close()
 
 
+# The thread for the realsense
 class VideoThread(QThread):
+    # Send the image to visulization obtained by the realsense
     change_pixmap_signal = pyqtSignal(np.ndarray)
+    # Send the finger position obtained by the realsense
     position_signal = pyqtSignal(np.ndarray)
+    finger_x = pyqtSignal(np.ndarray)
 
     def __init__(self):
         super().__init__()
@@ -221,6 +223,9 @@ class VideoThread(QThread):
         self.pipeline = rs.pipeline()
         self.config = rs.config()
         self.config.enable_stream(rs.stream.depth, 848, 100, rs.format.z16, 300)
+        
+        self.positions = []
+        self.timestamps = []
 
     def run(self):
         # Start streaming
@@ -234,29 +239,70 @@ class VideoThread(QThread):
             
             W = depth_frame.get_width()
             H = depth_frame.get_height()
-            # the height range: 0 ~ 23 cm
-            filter = rs.threshold_filter(min_dist=0, max_dist=0.25)
+            # the height range: 0 ~ 21 cm
+            filter = rs.threshold_filter(min_dist=0, max_dist=0.21)
             depth_frame = filter.process(depth_frame)
             depth_img = np.asanyarray(depth_frame.get_data())
-            # the contact area
-            depth_img = depth_img[int(H/2)-5:int(H/2)+5, int(W/2)-5:int(W/2)+5]
+            # the contact area, 100 x 100 pix
+            depth_img = depth_img[int(H/2)-50:int(H/2)+50, int(W/2)-424:int(W/2)+424]
             
+            # the avg height of 20 closest points
             min_x, min_y = np.where(depth_img > 0)
             if min_x.size == 0 or min_y.size == 0:
                 continue
-
+            
             nonzero_indices = np.argwhere(depth_img != 0)
             nonzero_values = depth_img[nonzero_indices[:, 0], nonzero_indices[:, 1]]
+            min_x, min_y = np.transpose(nonzero_indices[np.argsort(nonzero_values)[:20]])
+            # mass_x and mass_y are the list of x indices and y indices of mass pixels
+            cent_x = int(np.average(min_x))
+            cent_y = int(np.average(min_y))
+            height = depth_img[cent_x, cent_y]
             
-            height = np.mean(nonzero_values)
+            self.finger_x.emit(np.array([cent_y]))
+
+            # calculate the coodinate using the fov
+            # depth fov of D435i: 87° x 58°
+            # rgb fov of D435i: 69° x 42°
+            # ang_x = math.radians((cent_x - 50) / (W / 2) * (87 / 2))
+            # ang_y = math.radians((cent_y - 50) / (H / 2) * (58 / 2))
+            # x_dis = math.tan(ang_x) * height
+            # y_dis = math.tan(ang_y) * height
+            
+            # use official functions to obtain the coodinate
+            intrinsics = depth_frame.profile.as_video_stream_profile().intrinsics
+            cent_x_full_frame = cent_x + int(W/2) - 50
+            cent_y_full_frame = cent_y + int(H/2) - 424
+            point = rs.rs2_deproject_pixel_to_point(intrinsics,[cent_x_full_frame, cent_y_full_frame],height)
+            x_dis, y_dis, height = point
 
             # print('X:', x_dis, 'Y:', y_dis, 'Z:', height)
             # send the coodinate signal
-            self.position_signal.emit(np.array([0, 0, height]))
+            self.position_signal.emit(np.array([y_dis, x_dis, height]))
+            
+            # temporal differential for obtaining the velocity
+            current_time = time.time() 
+            self.positions.append((x_dis, y_dis))
+            self.timestamps.append(current_time)
+
+            # 10 frames
+            if len(self.positions) > 10:
+                self.positions.pop(0)
+                self.timestamps.pop(0)
+
+            if len(self.positions) > 1:
+                dx = self.positions[-1][0] - self.positions[0][0]
+                dy = self.positions[-1][1] - self.positions[0][1]
+                dt = self.timestamps[-1] - self.timestamps[0]
+                vx = dx / dt
+                vy = dy / dt
+                # print("velocity_x:",vx)
+                # print("velocity_y:",vy)
+                # self.velocity_signal.emit(np.array([vx, vy]))
             
             # draw the rendering area
-            # cv2.circle(depth_img, (cent_y, cent_x), 5, (255, 255, 255), -1)
-            depth_img = cv2.applyColorMap(cv2.convertScaleAbs(depth_img), cv2.COLORMAP_JET)
+            cv2.circle(depth_img, (cent_y, cent_x), 5, (255, 255, 255), -1)
+            depth_img = cv2.flip(cv2.applyColorMap(cv2.convertScaleAbs(depth_img), cv2.COLORMAP_JET), 0)
             self.change_pixmap_signal.emit(depth_img)
 
     def stop(self):
@@ -266,116 +312,112 @@ class VideoThread(QThread):
 
 
 class MainWindow(QWidget):
-    def __init__(self):
+    def __init__(self, vis_queue=None, finger_position=None):
         super().__init__()
         self.setWindowTitle("Sequential Line Search")
+        self.vis_queue = vis_queue  # 用于向 pygame 子进程发送参数
+        self.finger_position = finger_position
+
         # Start the threads
         self.autd_thread = AUTDThread()
-        # The realsense thread is the class member of AUTDThread()
         self.video_thread = self.autd_thread.video_thread
-        # Connect to Unity
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((HOST, PORT))
-
-        self.image_disp_w_h = 320
+        self.image_disp_w_h = 800
 
         self.image_label = QLabel(self)
         self.image_label.resize(self.image_disp_w_h, self.image_disp_w_h)
 
-        whole_hbox = QHBoxLayout()
-        whole_hbox.addWidget(self.image_label)
+        whole_vbox = QVBoxLayout()
+        whole_vbox.addWidget(self.image_label)
 
         self.horizontal_slider = QSlider(Qt.Horizontal)
         self.horizontal_slider.setRange(0, 999)
         self.horizontal_slider.setSliderPosition(0)
 
         self.vertical_sliders = []
-
         self.sinusoid_widget = SinusoidWidget()
 
         layout = QVBoxLayout()
         layout.addWidget(self.sinusoid_widget)
 
         horizontal_layout = QHBoxLayout()
-        labels = ["F_low", "A_low", "F_mid", "A_mid", "F_high", "A_high", "Moving Speed"]
+        labels = ["F_low", "A_low", "F_mid", "A_mid", "F_high", "A_high"]
         for i in range(len(labels)):
             vertical_slider = QSlider(Qt.Vertical)
             vertical_slider.setRange(0, 100)
+            vertical_slider.setEnabled(False)
             self.vertical_sliders.append(vertical_slider)
-            vertical_slider.valueChanged.connect(lambda value, idx=i: self.updateSlider(value, idx))
 
             label = QLabel(labels[i])
-
             vertical_box = QVBoxLayout()
             vertical_box.addWidget(label, 1, Qt.AlignCenter | Qt.AlignTop)
             vertical_box.addWidget(vertical_slider, 0, Qt.AlignCenter | Qt.AlignTop)
-
             horizontal_layout.addLayout(vertical_box)
 
         layout.addLayout(horizontal_layout)
         layout.addWidget(self.horizontal_slider)
 
-        self.optimizer = pySequentialLineSearch.SequentialLineSearchOptimizer(num_dims=7)
-        
+        self.optimizer = pySequentialLineSearch.SequentialLineSearchOptimizer(num_dims=6)
+        self.optimizer.set_hyperparams(kernel_signal_var=0.50,
+                                       kernel_length_scale=0.10,
+                                       kernel_hyperparams_prior_var=0.10)
         self.optimizer.set_gaussian_process_upper_confidence_bound_hyperparam(5.)
 
-        self.horizontal_slider.valueChanged.connect(lambda value: 
+        self.horizontal_slider.valueChanged.connect(lambda value:
                                                     self.updateValues(_update_optimizer_flag=False))
 
         next_button = QPushButton("Next")
         next_button.clicked.connect(lambda value: self.updateValues(_update_optimizer_flag=True))
         layout.addWidget(next_button)
 
-        whole_hbox.addLayout(layout)
-        self.setLayout(whole_hbox)
+        whole_vbox.addLayout(layout)
+        self.setLayout(whole_vbox)
 
         self.updateValues(_update_optimizer_flag=False)
-        # connect its signal to the update_image slot
-        # self.video_thread.change_pixmap_signal.connect(self.update_image)
-        # start the thread
-        # self.video_thread.start()
+
+        # Connect signals
+        self.video_thread.change_pixmap_signal.connect(self.update_image)
+        self.autd_thread.SLS_para_signal.connect(self.forward_to_visualization)
+        self.video_thread.finger_x.connect(self.finger_position_visualization)
+
+        # Start threads
+        self.video_thread.start()
         self.autd_thread.start()
+        self.autd_thread.SLS_para_signal.emit(np.array(self.para_list))
 
     def closeEvent(self, event):
-        # self.video_thread.stop()
+        self.video_thread.stop()
         self.autd_thread.stop()
-        self.sock.close()
         event.accept()
 
     @pyqtSlot(np.ndarray)
     def update_image(self, cv_img):
-        """Updates the image_label with a new opencv image"""
         qt_img = self.convert_cv_qt(cv_img)
         self.image_label.setPixmap(qt_img)
-    
+
     def convert_cv_qt(self, cv_img):
-        """Convert from an opencv image to QPixmap"""
         rgb_image = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb_image.shape
         bytes_per_line = ch * w
         convert_to_Qt_format = QtGui.QImage(rgb_image.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888)
         p = convert_to_Qt_format.scaled(self.image_disp_w_h, self.image_disp_w_h, Qt.KeepAspectRatio)
         return QPixmap.fromImage(p)
-    
+
     def updateSlider(self, value, index):
         p = value / 100.0
         if index == 0:
-            self.para_list[0] = int(10 + p * 20)    # low frequency 10~30Hz
+            self.para_list[0] = int(10 + p * 20)
         if index == 1:
             self.para_list[1] = p
         if index == 2:
-            self.para_list[2] = int(30 + p * 70)    # mid frequency 30~100Hz
+            self.para_list[2] = int(30 + p * 70)
         if index == 3:
             self.para_list[3] = p
         if index == 4:
-            self.para_list[4] = int(100 + p * 200)  # high frequency 100~300Hz
+            self.para_list[4] = int(100 + p * 200)
         if index == 5:
             self.para_list[5] = p
-        if index == 6:
-            self.para_list[6] = 0.2 + p * 0.8
+
         self.autd_thread.SLS_para_signal.emit(np.array(self.para_list))
-        self.sock.sendall(str(self.para_list).encode())
-        print(self.para_list)
         self.sinusoid_widget.setAmplitude([self.para_list[1], self.para_list[3], self.para_list[5]])
         self.sinusoid_widget.setFrequency([self.para_list[0], self.para_list[2], self.para_list[4]])
 
@@ -388,37 +430,47 @@ class MainWindow(QWidget):
 
         optmized_para = self.optimizer.calc_point_from_slider_position(slider_position)
 
-        #stm_freq = 3 + optmized_para[0] * 17     # STM_freq: 3~20Hz
-        #radius = 2 + optmized_para[1] * 3       # STM radius: 2~5mm
-        
-        freq_l = int(10 + optmized_para[0] * 20)    # low frequency 10~30Hz
+        freq_l = int(10 + optmized_para[0] * 20)
         amp_l = optmized_para[1]
-
-        freq_m = int(30 + optmized_para[2] * 70)    # mid frequency 30~100Hz
+        freq_m = int(30 + optmized_para[2] * 70)
         amp_m = optmized_para[3]
-
-        freq_h = int(100 + optmized_para[4] * 200)  # high frequency 100~300Hz
+        freq_h = int(100 + optmized_para[4] * 200)
         amp_h = optmized_para[5]
-        
-        speed = 0.2 + optmized_para[6] * 0.8
-        
-        self.para_list = [freq_l, amp_l, freq_m, amp_m, freq_h, amp_h, speed]
-        self.sock.sendall(str(self.para_list).encode())
-        
+
+        self.para_list = [freq_l, amp_l, freq_m, amp_m, freq_h, amp_h]
+
         self.autd_thread.SLS_para_signal.emit(np.array(self.para_list))
+        self.sinusoid_widget.setAmplitude([amp_l, amp_m, amp_h])
+        self.sinusoid_widget.setFrequency([freq_l, freq_m, freq_h])
 
-        # offset = -0.5 * amp + 1
-        self.sinusoid_widget.setAmplitude([self.para_list[1], self.para_list[3], self.para_list[5]])
-        self.sinusoid_widget.setFrequency([self.para_list[0], self.para_list[2], self.para_list[4]])
-
-        i = 0
-        for vertical_slider in self.vertical_sliders:
+        for i, vertical_slider in enumerate(self.vertical_sliders):
             vertical_slider.setValue(int(optmized_para[i] * vertical_slider.maximum()))
-            i += 1
+
+    @pyqtSlot(np.ndarray)
+    def forward_to_visualization(self, para):
+        if self.vis_queue is not None:
+            self.vis_queue.put(list(para))
+    
+    @pyqtSlot(np.ndarray)
+    def finger_position_visualization(self, pos):
+        if self.finger_position is not None:
+            self.finger_position.put(list(pos))
 
 
 if __name__ == '__main__':
+    import multiprocessing
+    multiprocessing.set_start_method('spawn')  # macOS 推荐
+
+    vis_queue = Queue()
+    finger_position = Queue()
+    vis_proc = Process(target=run_visualization_process, args=(vis_queue, finger_position))
+    vis_proc.start()
+
     app = QApplication(sys.argv)
-    window = MainWindow()
+    window = MainWindow(vis_queue, finger_position)
     window.show()
-    sys.exit(app.exec_())
+    ret = app.exec_()
+
+    vis_proc.terminate()
+    vis_proc.join()
+    sys.exit(ret)
