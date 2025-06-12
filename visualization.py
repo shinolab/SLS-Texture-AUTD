@@ -11,9 +11,9 @@ import random
 from multiprocessing import Queue
 
 # ---------- Constants ----------
-SCREEN_W, SCREEN_H = 1000, 800
+SCREEN_W, SCREEN_H = 1400, 300
 GRID_W = 900
-BASELINE_Y = 380
+BASELINE_Y = 250
 RECT_W, RECT_H = 10, 80
 AREA_CONST = RECT_W * RECT_H
 
@@ -153,7 +153,7 @@ class VisualizationWithQueue(VisualizationThread):
         import pygame
         print('run pygame')
         pygame.init()
-        screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
+        screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), pygame.RESIZABLE)
         pygame.display.set_caption("Finger-Fabric: Wave-SLS Mapped")
         clock = pygame.time.Clock()
 
@@ -161,7 +161,7 @@ class VisualizationWithQueue(VisualizationThread):
         fw, fh = finger_raw.get_size()
         finger_img = pygame.transform.smoothscale(finger_raw, (int(fw * FINGER_SCALE), int(fh * FINGER_SCALE)))
 
-        finger_x, finger_y = SCREEN_W // 2, SCREEN_H // 2 + 45
+        finger_x, finger_y = SCREEN_W // 2, SCREEN_H + 15
 
         fibers = []
         last_params = self.params.copy()
@@ -197,8 +197,6 @@ class VisualizationWithQueue(VisualizationThread):
                 if e.type == pygame.QUIT:
                     running = False
                     break
-                elif e.type == pygame.MOUSEMOTION:
-                    finger_x = e.pos[0]
 
             fibers, max_deform = update_fibers()
 
